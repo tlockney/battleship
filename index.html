@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Broadside</title>
+<meta name="description" content="Two-player Battleship you can play from anywhere, built for low vision.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+  :root {
+    --ink: #0a1b2e;        /* text on light ground */
+    --paper: #f4f7fa;      /* light ground */
+    --panel: #ffffff;
+    --line: #b9c9d9;
+    --sea: #123b5c;        /* board water, both themes */
+    --sea-line: #2f5f86;
+    --foam: #f4f7fa;       /* text on sea */
+    --ship: #8fa8bf;
+    --hit: #ff7a1a;        /* signal orange */
+    --sunk: #b3261e;
+    --miss: #cfe3f5;
+    --buoy: #ffd23f;       /* selection / focus */
+    --accent: #0f5c8f;
+    --accent-ink: #ffffff;
+    --muted: #4a5d70;
+    --font: "Atkinson Hyperlegible", "Verdana", "Segoe UI", system-ui, sans-serif;
+    --cell: clamp(26px, calc((100vw - 2rem - 40px) / 11), 4.6rem);
+    --gap: 3px;
+    --radius: 6px;
+    font-size: 18px;
+    color-scheme: light dark;
+  }
+  :root[data-size="large"] { font-size: 22px; }
+  :root[data-size="huge"]  { font-size: 27px; --cell: clamp(26px, calc((100vw - 2rem - 40px) / 11), 5.4rem); }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #f4f7fa; --paper: #0a1b2e; --panel: #112a44; --line: #2f4d6b;
+      --accent: #5fb0f0; --accent-ink: #0a1b2e; --muted: #b7c8d9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #f4f7fa; --paper: #0a1b2e; --panel: #112a44; --line: #2f4d6b;
+    --accent: #5fb0f0; --accent-ink: #0a1b2e; --muted: #b7c8d9;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: var(--font); line-height: 1.45;
+    padding-inline: 1rem; padding-block: 0.75rem 3rem;
+    max-width: 62rem; margin-inline: auto;
+  }
+  h1, h2 { margin: 0; text-wrap: balance; line-height: 1.15; }
+  h1 { font-size: 1.6rem; letter-spacing: 0.02em; }
+  h2 { font-size: 1.25rem; }
+  p { margin: 0; max-width: 42rem; }
+  .eyebrow { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; padding-block: 0.5rem 1rem; }
+  .brand { display: flex; align-items: baseline; gap: 0.75rem; }
+  .code { font-weight: 700; letter-spacing: 0.15em; font-variant-numeric: tabular-nums; }
+
+  .sizes { display: flex; gap: 0.35rem; align-items: center; }
+  .sizes button { min-width: 2.6rem; }
+  .sizes button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+  button, input {
+    font: inherit; color: inherit; border-radius: var(--radius);
+  }
+  button {
+    background: var(--panel); border: 2px solid var(--line); padding: 0.5rem 0.9rem;
+    font-weight: 700; cursor: pointer; min-height: 2.75rem;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-size: 1.15rem; padding: 0.7rem 1.4rem; }
+  button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+  :is(button, input, a):focus-visible { outline: 4px solid var(--buoy); outline-offset: 2px; }
+  input {
+    background: var(--panel); border: 2px solid var(--line); padding: 0.55rem 0.7rem; width: 100%;
+  }
+  input[name="code"] { text-transform: uppercase; letter-spacing: 0.15em; font-weight: 700; }
+  label { display: grid; gap: 0.3rem; font-weight: 700; }
+
+  .screen[hidden] { display: none; }
+  .stack { display: grid; gap: 1rem; }
+  .row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+
+  .status {
+    font-size: 1.35rem; font-weight: 700; padding: 0.8rem 1rem;
+    background: var(--panel); border: 2px solid var(--line); border-left: 10px solid var(--accent);
+    border-radius: var(--radius);
+  }
+  .status.turn { border-left-color: var(--hit); }
+  .status.win  { border-left-color: var(--buoy); }
+  .note { color: var(--muted); }
+
+  .boards { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+  @media (min-width: 60rem) {
+    .boards.two { grid-template-columns: 1fr 1fr; }
+    :root { --cell: clamp(26px, calc((min(100vw, 62rem) - 3.5rem - 80px) / 22), 4.6rem); }
+    :root[data-size="huge"] { --cell: clamp(26px, calc((min(100vw, 62rem) - 3.5rem - 80px) / 22), 5.4rem); }
+  }
+  .board-wrap { display: grid; gap: 0.6rem; justify-items: start; }
+  .board-scroll { overflow-x: auto; max-width: 100%; padding-bottom: 2px; }
+
+  .grid {
+    display: grid; gap: var(--gap);
+    grid-template-columns: var(--cell) repeat(10, var(--cell));
+    grid-auto-rows: var(--cell);
+    background: var(--sea); padding: var(--gap); border-radius: var(--radius);
+    font-variant-numeric: tabular-nums;
+  }
+  .lbl {
+    display: grid; place-items: center; color: var(--foam);
+    font-weight: 700; font-size: calc(var(--cell) * 0.4); letter-spacing: -0.03em;
+  }
+  .cell {
+    margin: 0; padding: 0; min-height: 0; border-radius: 4px;
+    background: var(--sea); border: 2px solid var(--sea-line);
+    color: var(--ink); display: grid; place-items: center;
+    font-size: calc(var(--cell) * 0.62); line-height: 1; font-weight: 700;
+  }
+  .cell:hover:not(:disabled) { border-color: var(--buoy); }
+  .cell:disabled { cursor: default; }
+  .cell.ship { background: var(--ship); border-color: var(--ship); }
+  .cell.miss { background: var(--miss); border-color: var(--miss); color: var(--sea); }
+  .cell.hit  { background: var(--hit); border-color: var(--hit); color: #0a1b2e; }
+  .cell.sunk { background: var(--sunk); border-color: var(--sunk); color: #ffffff; }
+  .cell.sel  { outline: 5px solid var(--buoy); outline-offset: -2px; box-shadow: 0 0 0 3px var(--ink) inset; }
+  .cell.last { box-shadow: 0 0 0 4px var(--buoy) inset; }
+  .cell:focus-visible { outline: 5px solid var(--buoy); outline-offset: -1px; z-index: 1; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; font-size: 0.95rem; align-items: center; }
+  .legend .cell { width: 1.6em; height: 1.6em; font-size: 1.1em; display: inline-grid; margin-right: 0.35em; vertical-align: middle; }
+
+  .fleet { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; list-style: none; padding: 0; margin: 0; font-weight: 700; }
+  .fleet li.down { text-decoration: line-through; color: var(--muted); }
+  .fleet li.down::before { content: "✕ "; color: var(--sunk); }
+
+  .fire { font-size: 1.4rem; min-height: 3.4rem; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  a { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
+  .row, .status, h1, h2, p, li { overflow-wrap: anywhere; min-width: 0; }
+  @media (prefers-reduced-motion: no-preference) { .cell { transition: background-color 120ms; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Broadside</h1>
+    <span class="eyebrow" id="code-label" hidden>Game <span class="code" id="code-view"></span></span>
+  </div>
+  <div class="sizes" role="group" aria-label="Text size">
+    <span class="eyebrow">Size</span>
+    <button type="button" data-size="normal" aria-pressed="true">A</button>
+    <button type="button" data-size="large" aria-pressed="false" style="font-size:1.15em">A</button>
+    <button type="button" data-size="huge" aria-pressed="false" style="font-size:1.35em">A</button>
+  </div>
+</header>
+
+<main class="stack">
+  <p id="status" class="status" role="status" aria-live="polite">Loading…</p>
+  <p id="announce" class="sr-only" aria-live="assertive"></p>
+
+  <!-- Lobby -->
+  <section class="screen stack" id="lobby">
+    <p>Two players, one game code. Start a game and send your partner the link, or type in the code they gave you.</p>
+    <form id="lobby-form" class="stack" autocomplete="off">
+      <label>Your name <input name="name" required maxlength="24"></label>
+      <label>Game code <input name="code" required minlength="4" maxlength="8" pattern="[A-Za-z0-9]+" spellcheck="false"></label>
+      <div class="row">
+        <button type="submit" class="primary">Enter game</button>
+        <button type="button" id="new-code">New code</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Placement -->
+  <section class="screen stack" id="place" hidden>
+    <div class="row">
+      <h2>Your fleet</h2>
+      <p class="note">Shuffle until you like the layout, then press Ready.</p>
+    </div>
+    <div class="board-wrap">
+      <div class="board-scroll"><div class="grid" id="place-grid" role="grid" aria-label="Your fleet"></div></div>
+      <div class="row">
+        <button type="button" id="shuffle">Shuffle fleet</button>
+        <button type="button" id="ready" class="primary">Ready</button>
+      </div>
+    </div>
+    <p class="row"><span class="eyebrow">Share</span> <a id="share-link" href="#"></a> <button type="button" id="copy-link">Copy link</button></p>
+  </section>
+
+  <!-- Play -->
+  <section class="screen stack" id="play" hidden>
+    <div class="boards two">
+      <div class="board-wrap">
+        <h2 id="target-title">Their waters</h2>
+        <ul class="fleet" id="their-fleet" aria-label="Their ships"></ul>
+        <div class="board-scroll"><div class="grid" id="target-grid" role="grid" aria-label="Their waters. Choose a square to fire at."></div></div>
+        <button type="button" id="fire" class="primary fire" disabled>Choose a square</button>
+      </div>
+      <div class="board-wrap">
+        <h2>Your waters</h2>
+        <ul class="fleet" id="my-fleet" aria-label="Your ships"></ul>
+        <div class="board-scroll"><div class="grid" id="my-grid" role="grid" aria-label="Your waters"></div></div>
+      </div>
+    </div>
+    <div class="legend" aria-hidden="true">
+      <span><span class="cell hit">✕</span>Hit</span>
+      <span><span class="cell sunk">✕</span>Sunk</span>
+      <span><span class="cell miss">•</span>Miss</span>
+      <span><span class="cell ship"></span>Your ship</span>
+    </div>
+  </section>
+
+  <!-- Over -->
+  <section class="screen stack" id="over" hidden>
+    <div class="row">
+      <button type="button" id="rematch" class="primary">Play again</button>
+      <button type="button" id="join-rematch" class="primary" hidden>Join the rematch</button>
+      <a href="./">Back to start</a>
+    </div>
+  </section>
+
+  <p class="note" id="conn"></p>
+</main>
+
+<script type="module">
+import { SIZE, SHIPS, ROWS, key, coordName, randomFleet, resolveShot, reduceLog } from "./game.js";
+
+// ---------- transport: ntfy.sh topic as a shared append-only log ----------
+const RELAY = "https://ntfy.sh";
+class Relay {
+  constructor(topic, onMessage, onStatus) {
+    this.topic = topic; this.onMessage = onMessage; this.onStatus = onStatus;
+    this.seen = new Set();
+  }
+  connect() {
+    const es = new EventSource(`${RELAY}/${this.topic}/sse?since=all`);
+    es.onopen = () => { this.onStatus("Connected."); setTimeout(() => this.poll(), 3000); setTimeout(() => this.poll(), 8000); };
+    es.onerror = () => this.onStatus("Reconnecting…");
+    es.onmessage = (e) => this.ingest(e.data);
+    this.es = es;
+    // A message published in the instant between ntfy's history replay and
+    // the live subscription can be dropped, so catch up by polling as well.
+    setInterval(() => this.poll(), 15000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) this.poll(); });
+  }
+  ingest(line) {
+    let env; try { env = JSON.parse(line); } catch { return; }
+    if (env.event !== "message" || this.seen.has(env.id)) return;
+    this.seen.add(env.id);
+    let m; try { m = JSON.parse(env.message); } catch { return; }
+    this.onMessage(m);
+  }
+  async poll() {
+    try {
+      const res = await fetch(`${RELAY}/${this.topic}/json?since=all&poll=1`, { cache: "no-store" });
+      (await res.text()).split("\n").filter(Boolean).forEach((l) => this.ingest(l));
+    } catch { /* the next poll or the stream will catch up */ }
+  }
+  async send(m) {
+    const res = await fetch(`${RELAY}/${this.topic}`, { method: "POST", body: JSON.stringify(m) });
+    if (!res.ok) throw new Error(`relay ${res.status}`);
+  }
+}
+
+// ---------- local state ----------
+const $ = (s) => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I lookalikes
+const makeCode = () => Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => ALPHABET[b % ALPHABET.length]).join("");
+const store = {
+  get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// text size
+const sizeButtons = document.querySelectorAll(".sizes button");
+function setSize(s) {
+  document.documentElement.dataset.size = s; store.set("bs:size", s);
+  sizeButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.size === s)));
+}
+sizeButtons.forEach((b) => b.addEventListener("click", () => setSize(b.dataset.size)));
+setSize(store.get("bs:size", "normal"));
+
+// ---------- lobby ----------
+const form = $("#lobby-form");
+form.elements.name.value = store.get("bs:name", "");
+form.elements.code.value = (params.get("g") || makeCode()).toUpperCase();
+$("#new-code").addEventListener("click", () => { form.elements.code.value = makeCode(); });
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = form.elements.name.value.trim();
+  const code = form.elements.code.value.trim().toUpperCase();
+  store.set("bs:name", name);
+  history.replaceState(null, "", `?g=${code}`);
+  start(code, name);
+});
+if (params.get("g") && form.elements.name.value) {
+  form.requestSubmit();
+} else {
+  $("#status").textContent = "Enter your name and a game code.";
+}
+
+// ---------- game ----------
+function start(code, name) {
+  $("#lobby").hidden = true;
+  $("#code-label").hidden = false; $("#code-view").textContent = code;
+  const link = `${location.origin}${location.pathname}?g=${code}`;
+  $("#share-link").href = link; $("#share-link").textContent = link;
+  $("#copy-link").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(link); announce("Link copied."); } catch { announce("Copy failed. Select the link and copy it."); }
+  });
+
+  const meKey = `bs:${code}:me`;
+  const me = store.get(meKey, null) || { pid: makeCode() + makeCode(), name, fleet: randomFleet(), ready: false, joined: false };
+  me.name = name; store.set(meKey, me);
+
+  const log = [];
+  let state = reduceLog(log);
+  let selected = null;     // [r,c] on the target board
+  let sending = false;
+  let settled = false;     // replay finished -> announce live events
+  const answered = new Set();
+  const seenResults = new Set();
+  let rematchCode = null;
+
+  const relay = new Relay(`broadside-${code}`, onMessage, (s) => { $("#conn").textContent = s; });
+  relay.connect();
+  setTimeout(() => { settled = true; }, 2500);
+  if (!me.joined) {
+    relay.send({ t: "join", p: me.pid, name: me.name }).then(() => { me.joined = true; store.set(meKey, me); }).catch(showSendError);
+  }
+
+  function onMessage(m) {
+    if (m.t === "next" && m.p !== me.pid) rematchCode = m.code;
+    log.push(m);
+    state = reduceLog(log);
+    if (settled) narrate(m);
+    render();
+    respondIfNeeded();
+  }
+
+  function opponent() { return state.players.find((p) => p.id !== me.pid) || null; }
+  function amPlayer() { return state.players.some((p) => p.id === me.pid); }
+
+  // The board owner answers each incoming shot from their private fleet.
+  function respondIfNeeded() {
+    const p = state.pending;
+    if (!p || p.p === me.pid || !amPlayer()) return;
+    const k = key(p.r, p.c);
+    if (answered.has(k)) return;
+    answered.add(k);
+    const prior = new Set(Object.keys(state.shots[p.p] || {}));
+    const r = resolveShot(me.fleet, prior, p.r, p.c);
+    relay.send({ t: "res", p: me.pid, r: p.r, c: p.c, hit: r.hit, sunk: r.sunk, over: r.over }).catch(showSendError);
+  }
+
+  function narrate(m) {
+    const opp = opponent();
+    if (m.t === "join" && m.p !== me.pid) announce(`${m.name} joined the game.`);
+    if (m.t === "ready" && m.p !== me.pid && opp) announce(`${opp.name} is ready.`);
+    if (m.t === "res") {
+      const k = key(m.r, m.c); if (seenResults.has(k + m.p)) return; seenResults.add(k + m.p);
+      const where = coordName(m.r, m.c);
+      const outcome = m.sunk ? `sank the ${m.sunk}` : m.hit ? "hit" : "missed";
+      if (m.p === me.pid) announce(`${opp?.name ?? "They"} fired at ${where} and ${outcome}${m.sunk ? "." : "."}`);
+      else announce(`You fired at ${where}: ${m.sunk ? `you sank their ${m.sunk}!` : m.hit ? "hit!" : "miss."}`);
+      if (m.over) announce(m.p === me.pid ? `${opp?.name ?? "They"} won the game.` : "You won the game!");
+    }
+  }
+
+  // ---------- rendering ----------
+  function render() {
+    const opp = opponent();
+    const status = $("#status");
+    status.className = "status";
+    const show = (id) => ["lobby", "place", "play", "over"].forEach((s) => { $("#" + s).hidden = s !== id; });
+
+    if (!amPlayer() && state.players.length >= 2) {
+      status.textContent = "This game already has two players. Start a new game with a fresh code.";
+      show("over"); $("#rematch").hidden = true; return;
+    }
+
+    if (state.phase === "waiting" || state.phase === "placing") {
+      show("place");
+      $("#shuffle").disabled = me.ready; $("#ready").disabled = me.ready;
+      drawGrid($("#place-grid"), { fleet: me.fleet, disabled: true });
+      if (!opp) status.textContent = `Waiting for a second player. Share code ${code} or the link below.`;
+      else if (!me.ready) status.textContent = `${opp.name} is here. Shuffle your fleet, then press Ready.`;
+      else status.textContent = `Waiting for ${opp.name} to place their ships.`;
+      return;
+    }
+
+    show(state.phase === "over" ? "play" : "play");
+    $("#over").hidden = state.phase !== "over";
+    $("#target-title").textContent = `${opp.name}'s waters`;
+    const myShots = state.shots[me.pid] || {};
+    const theirShots = state.shots[opp.id] || {};
+    const myTurn = state.turn === me.pid && !state.pending && state.phase === "playing";
+
+    drawGrid($("#target-grid"), { shots: myShots, disabled: !myTurn, selectable: true });
+    drawGrid($("#my-grid"), { fleet: me.fleet, shots: theirShots, disabled: true });
+    drawFleet($("#their-fleet"), Object.values(myShots).filter((s) => s.sunk).map((s) => s.sunk));
+    drawFleet($("#my-fleet"), Object.values(theirShots).filter((s) => s.sunk).map((s) => s.sunk));
+
+    const fire = $("#fire");
+    if (state.phase === "over") {
+      const won = state.winner === me.pid;
+      status.classList.add("win");
+      status.textContent = won ? "You won! Every enemy ship is sunk." : `${opp.name} won. Better luck next time.`;
+      fire.disabled = true; fire.textContent = won ? "Victory" : "Defeat";
+      $("#join-rematch").hidden = !rematchCode;
+    } else if (state.pending && state.pending.p === me.pid) {
+      status.textContent = `Shot fired at ${coordName(state.pending.r, state.pending.c)}. Waiting for ${opp.name}'s board to answer…`;
+      fire.disabled = true; fire.textContent = "Firing…";
+    } else if (myTurn) {
+      status.classList.add("turn");
+      status.textContent = selected ? `${coordName(...selected)} selected. Press Fire.` : "Your turn. Choose a square on their waters.";
+      fire.disabled = !selected || sending;
+      fire.textContent = selected ? `Fire at ${coordName(...selected)}` : "Choose a square";
+    } else {
+      status.textContent = `${opp.name}'s turn. Waiting for their shot…`;
+      fire.disabled = true; fire.textContent = "Waiting";
+    }
+  }
+
+  function drawFleet(ul, sunkNames) {
+    ul.replaceChildren(...SHIPS.map((s) => {
+      const li = document.createElement("li");
+      li.textContent = `${s.name} (${s.len})`;
+      if (sunkNames.includes(s.name)) { li.classList.add("down"); li.setAttribute("aria-label", `${s.name}, sunk`); }
+      return li;
+    }));
+  }
+
+  function drawGrid(grid, { fleet = null, shots = {}, disabled, selectable = false }) {
+    const shipCells = new Map();
+    fleet?.forEach((s) => s.cells.forEach(([r, c]) => shipCells.set(key(r, c), s.name)));
+    const sunkShips = new Set(Object.values(shots).map((s) => s.sunk).filter(Boolean));
+    const lastKey = Object.keys(shots).at(-1);
+    const frag = document.createDocumentFragment();
+    const corner = document.createElement("div"); corner.className = "lbl"; frag.append(corner);
+    for (let c = 0; c < SIZE; c++) { const d = document.createElement("div"); d.className = "lbl"; d.textContent = c + 1; d.setAttribute("aria-hidden", "true"); frag.append(d); }
+    for (let r = 0; r < SIZE; r++) {
+      const rl = document.createElement("div"); rl.className = "lbl"; rl.textContent = ROWS[r]; rl.setAttribute("aria-hidden", "true"); frag.append(rl);
+      for (let c = 0; c < SIZE; c++) {
+        const k = key(r, c);
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "cell"; b.dataset.r = r; b.dataset.c = c;
+        const shot = shots[k];
+        const shipName = shipCells.get(k);
+        let desc = "open water";
+        if (shot?.hit) {
+          const sunk = shot.sunk || (shipName && sunkShips.has(shipName) && "sunk");
+          b.classList.add(sunk ? "sunk" : "hit"); b.textContent = "✕";
+          desc = sunk ? `hit, ship sunk` : "hit";
+        } else if (shot) {
+          b.classList.add("miss"); b.textContent = "•"; desc = "miss";
+        } else if (shipName) {
+          b.classList.add("ship"); desc = `your ${shipName}`;
+        }
+        if (k === lastKey) b.classList.add("last");
+        if (selectable && selected && selected[0] === r && selected[1] === c) b.classList.add("sel");
+        b.setAttribute("aria-label", `${coordName(r, c)}, ${desc}`);
+        b.disabled = disabled || !!shot;
+        b.tabIndex = (r === 0 && c === 0) ? 0 : -1;
+        if (selectable) b.addEventListener("click", () => { selected = [r, c]; render(); grid.querySelector(".sel")?.focus(); });
+        frag.append(b);
+      }
+    }
+    grid.replaceChildren(frag);
+  }
+
+  // Arrow keys move between cells; Enter/Space activates the focused one.
+  document.querySelectorAll(".grid").forEach((grid) => grid.addEventListener("keydown", (e) => {
+    const t = e.target; if (!t.classList?.contains("cell")) return;
+    const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    const r = Math.min(SIZE - 1, Math.max(0, +t.dataset.r + d[0]));
+    const c = Math.min(SIZE - 1, Math.max(0, +t.dataset.c + d[1]));
+    const next = grid.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+    if (next) { grid.querySelectorAll(".cell").forEach((x) => x.tabIndex = -1); next.tabIndex = 0; next.focus(); }
+  }));
+
+  // ---------- actions ----------
+  $("#shuffle").addEventListener("click", () => { me.fleet = randomFleet(); store.set(meKey, me); render(); announce("Fleet shuffled."); });
+  $("#ready").addEventListener("click", () => {
+    me.ready = true; store.set(meKey, me);
+    relay.send({ t: "ready", p: me.pid }).catch(showSendError);
+    render();
+  });
+  $("#fire").addEventListener("click", async () => {
+    if (!selected || sending) return;
+    sending = true; render();
+    try { await relay.send({ t: "fire", p: me.pid, r: selected[0], c: selected[1] }); selected = null; }
+    catch (err) { showSendError(err); }
+    sending = false; render();
+  });
+  $("#rematch").addEventListener("click", () => {
+    const next = makeCode();
+    relay.send({ t: "next", p: me.pid, code: next }).finally(() => { location.href = `?g=${next}`; });
+  });
+  $("#join-rematch").addEventListener("click", () => { location.href = `?g=${rematchCode}`; });
+
+  function showSendError(err) { $("#conn").textContent = `Could not reach the relay (${err.message}). Check your connection and try again.`; }
+  render();
+}
+
+function announce(text) { const a = $("#announce"); a.textContent = ""; setTimeout(() => { a.textContent = text; }, 50); }
+</script>
+</body>
+</html>

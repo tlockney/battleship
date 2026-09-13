@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "test": "deno test",
+    "serve": "deno run -A jsr:@std/http/file-server --port 8765 ."
+  }
+}
