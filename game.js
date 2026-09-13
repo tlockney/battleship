@@ -151,3 +151,17 @@ export function reduceLog(log) {
 
 export const ROWS = "ABCDEFGHIJ";
 export const coordName = (r, c) => `${ROWS[r]}${c + 1}`;
+
+/**
+ * Canonical order for the shared log. The relay can deliver the same
+ * messages to different players in different orders, so every message
+ * carries a Lamport clock (`seq`, one more than anything the sender had seen)
+ * and ties break on the sender id. Causally later messages always sort later.
+ */
+export function sortLog(log) {
+  return [...log].sort((a, b) =>
+    (a.seq ?? 0) - (b.seq ?? 0) ||
+    String(a.p).localeCompare(String(b.p)) ||
+    String(a.t).localeCompare(String(b.t))
+  );
+}

@@ -7,6 +7,7 @@ import {
   reduceLog,
   resolveShot,
   SHIPS,
+  sortLog,
 } from "./game.js";
 
 function seeded(seed: number) {
@@ -138,4 +139,16 @@ Deno.test("reduceLog ignores a third joiner and repeated shots", () => {
 Deno.test("coordName", () => {
   assertEquals(coordName(0, 0), "A1");
   assertEquals(coordName(9, 9), "J10");
+});
+
+Deno.test("sortLog gives every player the same order regardless of arrival", () => {
+  const a = { t: "join", p: "zed", name: "Z", seq: 1 };
+  const b = { t: "join", p: "amy", name: "A", seq: 1 };
+  const fire = { t: "fire", p: "amy", r: 0, c: 0, seq: 3 };
+  const res = { t: "res", p: "zed", r: 0, c: 0, hit: false, seq: 4 };
+  const ready = [{ t: "ready", p: "amy", seq: 2 }, { t: "ready", p: "zed", seq: 2 }];
+  const seenByA = sortLog([a, ...ready, res, b, fire]);
+  const seenByB = sortLog([b, fire, a, res, ...ready]);
+  assertEquals(seenByA, seenByB);
+  assertEquals(reduceLog(seenByA).turn, "zed"); // amy joined first and fired; zed answered, so it is zed's turn
 });

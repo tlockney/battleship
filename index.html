@@ -230,7 +230,7 @@
 </main>
 
 <script type="module">
-import { SIZE, SHIPS, ROWS, key, coordName, randomFleet, resolveShot, reduceLog } from "./game.js";
+import { SIZE, SHIPS, ROWS, key, coordName, randomFleet, resolveShot, reduceLog, sortLog } from "./game.js";
 
 // ---------- transport: ntfy.sh topic as a shared append-only log ----------
 const RELAY = "https://ntfy.sh";
@@ -334,13 +334,16 @@ function start(code, name) {
   relay.connect();
   setTimeout(() => { settled = true; }, 2500);
   if (!me.joined) {
-    relay.send({ t: "join", p: me.pid, name: me.name }).then(() => { me.joined = true; store.set(meKey, me); }).catch(showSendError);
+    relay.send(stamped({ t: "join", p: me.pid, name: me.name })).then(() => { me.joined = true; store.set(meKey, me); }).catch(showSendError);
   }
 
+  let clock = 0; // Lamport clock: every message we send is later than all we have seen
+  const stamped = (m) => ({ ...m, seq: ++clock });
   function onMessage(m) {
+    clock = Math.max(clock, m.seq ?? 0);
     if (m.t === "next" && m.p !== me.pid) rematchCode = m.code;
     log.push(m);
-    state = reduceLog(log);
+    state = reduceLog(sortLog(log));
     if (settled) narrate(m);
     render();
     respondIfNeeded();
@@ -358,7 +361,7 @@ function start(code, name) {
     answered.add(k);
     const prior = new Set(Object.keys(state.shots[p.p] || {}));
     const r = resolveShot(me.fleet, prior, p.r, p.c);
-    relay.send({ t: "res", p: me.pid, r: p.r, c: p.c, hit: r.hit, sunk: r.sunk, over: r.over }).catch(showSendError);
+    relay.send(stamped({ t: "res", p: me.pid, r: p.r, c: p.c, hit: r.hit, sunk: r.sunk, over: r.over })).catch(showSendError);
   }
 
   function narrate(m) {
@@ -493,19 +496,19 @@ function start(code, name) {
   $("#shuffle").addEventListener("click", () => { me.fleet = randomFleet(); store.set(meKey, me); render(); announce("Fleet shuffled."); });
   $("#ready").addEventListener("click", () => {
     me.ready = true; store.set(meKey, me);
-    relay.send({ t: "ready", p: me.pid }).catch(showSendError);
+    relay.send(stamped({ t: "ready", p: me.pid })).catch(showSendError);
     render();
   });
   $("#fire").addEventListener("click", async () => {
     if (!selected || sending) return;
     sending = true; render();
-    try { await relay.send({ t: "fire", p: me.pid, r: selected[0], c: selected[1] }); selected = null; }
+    try { await relay.send(stamped({ t: "fire", p: me.pid, r: selected[0], c: selected[1] })); selected = null; }
     catch (err) { showSendError(err); }
     sending = false; render();
   });
   $("#rematch").addEventListener("click", () => {
     const next = makeCode();
-    relay.send({ t: "next", p: me.pid, code: next }).finally(() => { location.href = `?g=${next}`; });
+    relay.send(stamped({ t: "next", p: me.pid, code: next })).finally(() => { location.href = `?g=${next}`; });
   });
   $("#join-rematch").addEventListener("click", () => { location.href = `?g=${rematchCode}`; });
 
