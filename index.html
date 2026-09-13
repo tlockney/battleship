@@ -322,6 +322,8 @@ function start(code, name) {
   me.name = name; store.set(meKey, me);
 
   const log = [];
+  let clock = 0; // Lamport clock: every message we send is later than all we have seen
+  const stamped = (m) => ({ ...m, seq: ++clock });
   let state = reduceLog(log);
   let selected = null;     // [r,c] on the target board
   let sending = false;
@@ -337,8 +339,6 @@ function start(code, name) {
     relay.send(stamped({ t: "join", p: me.pid, name: me.name })).then(() => { me.joined = true; store.set(meKey, me); }).catch(showSendError);
   }
 
-  let clock = 0; // Lamport clock: every message we send is later than all we have seen
-  const stamped = (m) => ({ ...m, seq: ++clock });
   function onMessage(m) {
     clock = Math.max(clock, m.seq ?? 0);
     if (m.t === "next" && m.p !== me.pid) rematchCode = m.code;
