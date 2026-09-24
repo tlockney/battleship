@@ -60,7 +60,7 @@
   .eyebrow { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.8rem; font-weight: 700; color: var(--muted); }
 
   header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; padding-block: 0.5rem 1rem; }
-  .brand { display: flex; align-items: baseline; gap: 0.75rem; }
+  .brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.75rem; }
   .code { font-weight: 700; letter-spacing: 0.15em; font-variant-numeric: tabular-nums; }
 
   .sizes { display: flex; gap: 0.35rem; align-items: center; }
@@ -123,8 +123,8 @@
     color: var(--ink); display: grid; place-items: center;
     font-size: calc(var(--cell) * 0.62); line-height: 1; font-weight: 700;
   }
-  .cell:hover:not(:disabled) { border-color: var(--buoy); }
-  .cell:disabled { cursor: default; }
+  .cell:hover:not([aria-disabled="true"]) { border-color: var(--buoy); }
+  .cell[aria-disabled="true"] { cursor: default; }
   .cell.ship { background: var(--ship); border-color: var(--ship); }
   .cell.miss { background: var(--miss); border-color: var(--miss); color: var(--sea); }
   .cell.hit  { background: var(--hit); border-color: var(--hit); color: #0a1b2e; }
@@ -143,7 +143,7 @@
   .fire { font-size: 1.4rem; min-height: 3.4rem; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   a { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
-  .row, .status, h1, h2, p, li { overflow-wrap: anywhere; min-width: 0; }
+  .row, .status, h2, p, li { overflow-wrap: anywhere; min-width: 0; }
   @media (prefers-reduced-motion: no-preference) { .cell { transition: background-color 120ms; } }
 </style>
 </head>
@@ -328,6 +328,7 @@ function start(code, name) {
   let selected = null;     // [r,c] on the target board
   let sending = false;
   let settled = false;     // replay finished -> announce live events
+  let caughtUp = false;    // history fetched -> safe to stamp and send
   const answered = new Set();
   const seenResults = new Set();
   let rematchCode = null;
@@ -335,9 +336,17 @@ function start(code, name) {
   const relay = new Relay(`broadside-${code}`, onMessage, (s) => { $("#conn").textContent = s; });
   relay.connect();
   setTimeout(() => { settled = true; }, 2500);
-  if (!me.joined) {
-    relay.send(stamped({ t: "join", p: me.pid, name: me.name })).then(() => { me.joined = true; store.set(meKey, me); }).catch(showSendError);
-  }
+  // Load the history before sending anything. A join stamped before we have
+  // seen the log carries a low seq, sorts ahead of players already seated,
+  // and would push one of them out of an ongoing game. Waiting also stops a
+  // reload from re-answering every past shot while the replay streams in.
+  relay.poll().then(() => {
+    caughtUp = true;
+    if (!me.joined) {
+      relay.send(stamped({ t: "join", p: me.pid, name: me.name })).then(() => { me.joined = true; store.set(meKey, me); }).catch(showSendError);
+    }
+    respondIfNeeded();
+  });
 
   function onMessage(m) {
     clock = Math.max(clock, m.seq ?? 0);
@@ -355,7 +364,7 @@ function start(code, name) {
   // The board owner answers each incoming shot from their private fleet.
   function respondIfNeeded() {
     const p = state.pending;
-    if (!p || p.p === me.pid || !amPlayer()) return;
+    if (!caughtUp || !p || p.p === me.pid || !amPlayer()) return;
     const k = key(p.r, p.c);
     if (answered.has(k)) return;
     answered.add(k);
@@ -447,6 +456,10 @@ function start(code, name) {
     fleet?.forEach((s) => s.cells.forEach(([r, c]) => shipCells.set(key(r, c), s.name)));
     const sunkShips = new Set(Object.values(shots).map((s) => s.sunk).filter(Boolean));
     const lastKey = Object.keys(shots).at(-1);
+    // Rebuilding the grid drops focus; note where it was so a keyboard user
+    // stays put when a message arrives mid-turn.
+    const hadFocus = grid.contains(document.activeElement);
+    const focusKey = grid.dataset.focus || key(0, 0);
     const frag = document.createDocumentFragment();
     const corner = document.createElement("div"); corner.className = "lbl"; frag.append(corner);
     for (let c = 0; c < SIZE; c++) { const d = document.createElement("div"); d.className = "lbl"; d.textContent = c + 1; d.setAttribute("aria-hidden", "true"); frag.append(d); }
@@ -471,13 +484,18 @@ function start(code, name) {
         if (k === lastKey) b.classList.add("last");
         if (selectable && selected && selected[0] === r && selected[1] === c) b.classList.add("sel");
         b.setAttribute("aria-label", `${coordName(r, c)}, ${desc}`);
-        b.disabled = disabled || !!shot;
-        b.tabIndex = (r === 0 && c === 0) ? 0 : -1;
-        if (selectable) b.addEventListener("click", () => { selected = [r, c]; render(); grid.querySelector(".sel")?.focus(); });
+        // aria-disabled, not disabled: a disabled button cannot take focus,
+        // which would lock keyboard users out of the board.
+        const inert = disabled || !!shot;
+        b.setAttribute("aria-disabled", String(inert));
+        b.tabIndex = k === focusKey ? 0 : -1;
+        b.addEventListener("focus", () => { grid.dataset.focus = k; });
+        if (selectable) b.addEventListener("click", () => { if (inert) return; selected = [r, c]; render(); grid.querySelector(".sel")?.focus(); });
         frag.append(b);
       }
     }
     grid.replaceChildren(frag);
+    if (hadFocus) grid.querySelector(`.cell[tabindex="0"]`)?.focus();
   }
 
   // Arrow keys move between cells; Enter/Space activates the focused one.

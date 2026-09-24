@@ -152,3 +152,21 @@ Deno.test("sortLog gives every player the same order regardless of arrival", () 
   assertEquals(seenByA, seenByB);
   assertEquals(reduceLog(seenByA).turn, "zed"); // amy joined first and fired; zed answered, so it is zed's turn
 });
+
+Deno.test("a late joiner must stamp after the history or it unseats a player", () => {
+  const game: Msg[] = [
+    { t: "join", p: "mmm", name: "A", seq: 1 },
+    { t: "join", p: "zzz", name: "B", seq: 2 },
+    { t: "ready", p: "mmm", seq: 3 },
+    { t: "ready", p: "zzz", seq: 4 },
+    { t: "fire", p: "mmm", r: 0, c: 0, seq: 5 },
+    { t: "res", p: "zzz", r: 0, c: 0, hit: false, seq: 6 },
+  ];
+  // Stamped after catching up (what the page does): ignored.
+  const late = reduceLog(sortLog([...game, { t: "join", p: "aaa", name: "C", seq: 7 }]));
+  assertEquals(late.players.map((p) => p.id), ["mmm", "zzz"]);
+  assertEquals(late.turn, "zzz");
+  // Stamped before seeing the log: sorts first and takes a seat.
+  const stale = reduceLog(sortLog([...game, { t: "join", p: "aaa", name: "C", seq: 1 }]));
+  assertEquals(stale.players.map((p) => p.id), ["aaa", "mmm"]);
+});
